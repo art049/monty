@@ -92,7 +92,7 @@ impl RePattern {
         match self.compiled.captures(text) {
             Ok(Some(caps)) => {
                 let m = ReMatch::from_captures(&caps, text, &self.pattern, &self.compiled);
-                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(m))?))
+                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(Box::new(m)))?))
             }
             Ok(None) => Ok(Value::None),
             Err(err) => Err(ExcType::re_pattern_error(err)),
@@ -110,7 +110,7 @@ impl RePattern {
         match self.compiled_match.captures(text) {
             Ok(Some(caps)) => {
                 let match_obj = ReMatch::from_captures(&caps, text, &self.pattern, &self.compiled);
-                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(match_obj))?))
+                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(Box::new(match_obj)))?))
             }
             Ok(None) => Ok(Value::None),
             Err(err) => Err(ExcType::re_pattern_error(err)),
@@ -128,7 +128,7 @@ impl RePattern {
         match self.compiled_fullmatch.captures(text) {
             Ok(Some(caps)) => {
                 let match_obj = ReMatch::from_captures(&caps, text, &self.pattern, &self.compiled);
-                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(match_obj))?))
+                Ok(Value::Ref(heap.allocate(HeapData::ReMatch(Box::new(match_obj)))?))
             }
             Ok(None) => Ok(Value::None),
             Err(err) => Err(ExcType::re_pattern_error(err)),
@@ -252,7 +252,7 @@ impl RePattern {
         for caps in self.compiled.captures_iter(text) {
             let caps = caps.map_err(ExcType::re_pattern_error)?;
             let m = ReMatch::from_captures(&caps, text, &self.pattern, &self.compiled);
-            results.push(Value::Ref(heap.allocate(HeapData::ReMatch(m))?));
+            results.push(Value::Ref(heap.allocate(HeapData::ReMatch(Box::new(m)))?));
         }
 
         let list = List::new(results);

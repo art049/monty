@@ -139,6 +139,6 @@ pub(crate) fn gather(heap: &mut Heap<impl ResourceTracker>, args: ArgValues) -> 
 
     // Create GatherFuture on heap
     let gather_future = GatherFuture::new(items);
-    let id = heap.allocate(HeapData::GatherFuture(gather_future))?;
+    let id = heap.allocate(HeapData::GatherFuture(Box::new(gather_future)))?;
     Ok(Value::Ref(id))
 }

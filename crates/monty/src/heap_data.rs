@@ -70,7 +70,11 @@ pub(crate) enum HeapData {
     ///
     /// Contains a class name, a Dict of field name -> value mappings, and a set
     /// of method names that trigger external function calls when invoked.
-    Dataclass(Dataclass),
+    ///
+    /// Boxed to reduce `HeapData` enum size — `Dataclass` is 128 bytes but rarely
+    /// allocated in hot loops. Without boxing, every heap entry (including common
+    /// small types like Str, Int, Tuple) would pay the size cost.
+    Dataclass(Box<Dataclass>),
     /// An iterator for for-loop iteration and the `iter()` type constructor.
     ///
     /// Created by the `GetIter` opcode or `iter()` builtin, advanced by `ForIter`.
@@ -96,7 +100,11 @@ pub(crate) enum HeapData {
     /// A gather() result tracking multiple coroutines/tasks.
     ///
     /// Created by asyncio.gather() and spawns tasks when awaited.
-    GatherFuture(GatherFuture),
+    ///
+    /// Boxed to reduce `HeapData` enum size — `GatherFuture` is 104 bytes but
+    /// only created by `asyncio.gather()`. Without boxing, every heap entry
+    /// would pay the size cost of this large variant.
+    GatherFuture(Box<GatherFuture>),
     /// A filesystem path from `pathlib.Path`.
     ///
     /// Stored on the heap to provide Python-compatible path operations.
@@ -112,7 +120,11 @@ pub(crate) enum HeapData {
     ///
     /// Contains the matched text, capture groups, positions, and input string.
     /// Leaf type: no heap references, not GC-tracked.
-    ReMatch(ReMatch),
+    ///
+    /// Boxed to reduce `HeapData` enum size — `ReMatch` is 160 bytes (the largest
+    /// variant) but only created by regex operations. Without boxing, every heap
+    /// entry would be inflated to 184 bytes.
+    ReMatch(Box<ReMatch>),
     /// Reference to an external function whose name was not found in the intern table.
     ///
     /// Created when the host resolves a `NameLookup` to a callable whose name does not
@@ -225,14 +237,14 @@ impl HeapData {
             Self::Range(r) => HeapDataMut::Range(r),
             Self::Slice(s) => HeapDataMut::Slice(s),
             Self::Exception(e) => HeapDataMut::Exception(e),
-            Self::Dataclass(dc) => HeapDataMut::Dataclass(dc),
+            Self::Dataclass(dc) => HeapDataMut::Dataclass(dc.as_mut()),
             Self::Iter(iter) => HeapDataMut::Iter(iter),
             Self::LongInt(li) => HeapDataMut::LongInt(li),
             Self::Module(m) => HeapDataMut::Module(m),
             Self::Coroutine(coro) => HeapDataMut::Coroutine(coro),
-            Self::GatherFuture(gather) => HeapDataMut::GatherFuture(gather),
+            Self::GatherFuture(gather) => HeapDataMut::GatherFuture(gather.as_mut()),
             Self::Path(p) => HeapDataMut::Path(p),
-            Self::ReMatch(m) => HeapDataMut::ReMatch(m),
+            Self::ReMatch(m) => HeapDataMut::ReMatch(m.as_mut()),
             Self::RePattern(p) => HeapDataMut::RePattern(p),
             Self::ExtFunction(s) => HeapDataMut::ExtFunction(s),
         }
