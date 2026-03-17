@@ -27,10 +27,32 @@ impl<T: ResourceTracker> VM<'_, '_, T> {
     /// Builds a tuple from the top n stack values.
     ///
     /// Uses the empty tuple singleton when count is 0, and SmallVec
-    /// optimization for small tuples (≤2 elements).
+    /// optimization for small tuples (≤3 elements avoid heap allocation
+    /// for the item storage itself).
+    ///
+    /// For small tuples (≤3 elements), pops directly into a SmallVec
+    /// to avoid the intermediate `Vec` allocation from `pop_n`.
     pub(super) fn build_tuple(&mut self, count: usize) -> Result<(), RunError> {
-        let items = self.pop_n(count);
-        let value = allocate_tuple(items.into(), self.heap)?;
+        let items: SmallVec<[Value; 3]> = match count {
+            0 => SmallVec::new(),
+            1 => {
+                let a = self.pop();
+                smallvec::smallvec![a]
+            }
+            2 => {
+                let b = self.pop();
+                let a = self.pop();
+                smallvec::smallvec![a, b]
+            }
+            3 => {
+                let c = self.pop();
+                let b = self.pop();
+                let a = self.pop();
+                smallvec::smallvec![a, b, c]
+            }
+            _ => self.pop_n(count).into(),
+        };
+        let value = allocate_tuple(items, self.heap)?;
         self.push(value);
         Ok(())
     }
