@@ -16,6 +16,7 @@ use crate::{
     heap_data::CellValue,
     intern::{FunctionId, StringId},
     os::OsFunction,
+    parse::CodeRange,
     resource::ResourceTracker,
     types::{Dict, PyTrait, Type, bytes::call_bytes_method, str::call_str_method, r#type::call_type_method},
     value::{EitherStr, Value},
@@ -695,6 +696,85 @@ impl<T: ResourceTracker> VM<'_, '_, T> {
         args: ArgValues,
     ) -> Result<CallResult, RunError> {
         let call_position = self.current_position();
+        let func = self.interns.get_function(func_id);
+
+        // Fast path: simple signature with no cells, no closures.
+        // Pushes args directly onto the stack without allocating a temporary Vec.
+        // This is critical for recursive functions like fib() where call overhead dominates.
+        if func.signature.is_simple() && cells.is_empty() && func.cell_var_count == 0 {
+            return self.call_sync_function_simple(func_id, args, call_position);
+        }
+
+        self.call_sync_function_full(func_id, cells, defaults, args, call_position)
+    }
+
+    /// Fast path for calling simple functions (no defaults, no cells, no closures).
+    ///
+    /// Pushes positional args directly onto the VM stack instead of allocating a
+    /// temporary namespace Vec. This eliminates malloc/free per call and avoids
+    /// the memcpy from `stack.extend(namespace)`.
+    fn call_sync_function_simple(
+        &mut self,
+        func_id: FunctionId,
+        args: ArgValues,
+        call_position: CodeRange,
+    ) -> Result<CallResult, RunError> {
+        let stack_base = self.stack.len();
+        let func = self.interns.get_function(func_id);
+        let namespace_size = func.namespace_size;
+        let locals_count = u16::try_from(namespace_size).expect("function namespace size exceeds u16");
+
+        // Track memory for this frame's locals
+        let size = namespace_size * std::mem::size_of::<Value>();
+        self.heap.tracker_mut().on_allocate(|| size)?;
+
+        // Push positional args directly onto the stack
+        let args = match args.push_positional_to_vec(&mut self.stack) {
+            Ok(arg_count) => {
+                let param_count = func.signature.param_count();
+                if arg_count != param_count {
+                    // Roll back: pop the args we just pushed
+                    for _ in 0..arg_count {
+                        let v = self.stack.pop().expect("stack underflow during rollback");
+                        v.drop_with_heap(&mut *self.heap);
+                    }
+                    self.heap.tracker_mut().on_free(|| size);
+                    return func.signature.wrong_arg_count_error(arg_count, self.interns, func.name);
+                }
+                // Success - fill remaining namespace slots with Undefined
+                self.stack.resize_with(stack_base + namespace_size, || Value::Undefined);
+
+                let code = &func.code;
+                self.push_frame(CallFrame::new_function(
+                    code,
+                    stack_base,
+                    locals_count,
+                    func_id,
+                    Some(call_position),
+                ))?;
+                return Ok(CallResult::FramePushed);
+            }
+            // Has kwargs - fall back to full path (no defaults to pass)
+            Err(args) => args,
+        };
+
+        // Fall back to full path for kwargs
+        self.heap.tracker_mut().on_free(|| size);
+        self.call_sync_function_full(func_id, &[], &[], args, call_position)
+    }
+
+    /// Full path for calling functions with defaults, cells, or closures.
+    ///
+    /// Creates a temporary namespace Vec, binds arguments through `Signature::bind`,
+    /// sets up cell/free variables, and extends the stack.
+    fn call_sync_function_full(
+        &mut self,
+        func_id: FunctionId,
+        cells: &[HeapId],
+        defaults: &[Value],
+        args: ArgValues,
+        call_position: CodeRange,
+    ) -> Result<CallResult, RunError> {
         let stack_base = self.stack.len();
 
         let func = self.interns.get_function(func_id);

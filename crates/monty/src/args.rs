@@ -230,6 +230,36 @@ impl ArgValues {
         }
     }
 
+    /// Pushes positional arguments directly onto a target Vec (typically the VM stack).
+    ///
+    /// Returns the number of positional args pushed, and whether there were any kwargs.
+    /// Used by the fast path in `call_sync_function` to avoid allocating a temporary
+    /// namespace Vec - args go straight onto the stack.
+    ///
+    /// If the args contain kwargs, they are returned so the caller can fall back
+    /// to the normal path.
+    pub fn push_positional_to_vec(self, target: &mut Vec<Value>) -> Result<usize, Self> {
+        match self {
+            Self::Empty => Ok(0),
+            Self::One(v) => {
+                target.push(v);
+                Ok(1)
+            }
+            Self::Two(v1, v2) => {
+                target.push(v1);
+                target.push(v2);
+                Ok(2)
+            }
+            Self::ArgsKargs { args, kwargs } if kwargs.is_empty() => {
+                let count = args.len();
+                target.extend(args);
+                Ok(count)
+            }
+            // Has kwargs - caller must use the full bind path
+            other => Err(other),
+        }
+    }
+
     /// Variant of [`into_parts()`](Self::into_parts) that accepts no kwargs, returning an error if any are present.
     pub fn into_pos_only(self, method_name: &str, heap: &mut Heap<impl ResourceTracker>) -> RunResult<ArgPosIter> {
         match self {

@@ -124,19 +124,21 @@ impl Code {
     /// Finds the location entry for a given bytecode offset.
     ///
     /// Location entries are recorded at instruction boundaries. This method finds
-    /// the most recent entry at or before the given offset.
+    /// the most recent entry at or before the given offset using binary search.
     ///
     /// Returns `None` if the location table is empty or the offset is before
     /// the first recorded location.
     #[must_use]
     pub fn location_for_offset(&self, offset: usize) -> Option<&LocationEntry> {
-        // Location entries are in order by bytecode offset.
-        // Find the last entry where bytecode_offset <= offset.
+        // Location entries are sorted by bytecode_offset.
+        // Binary search for the last entry where bytecode_offset <= offset.
         let offset_u32 = u32::try_from(offset).expect("bytecode offset exceeds u32");
-        self.location_table
-            .iter()
-            .rev()
-            .find(|entry| entry.bytecode_offset <= offset_u32)
+        let table = &self.location_table;
+
+        // partition_point finds the first index where bytecode_offset > offset_u32,
+        // so the entry we want is at index - 1 (the last one <= offset_u32).
+        let idx = table.partition_point(|entry| entry.bytecode_offset <= offset_u32);
+        if idx > 0 { Some(&table[idx - 1]) } else { None }
     }
 
     /// Finds an exception handler for the given bytecode offset.

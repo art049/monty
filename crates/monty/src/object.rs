@@ -293,7 +293,7 @@ impl MontyObject {
                 let dict = Dict::from_pairs(pairs?, vm)
                     .map_err(|_| InvalidInputError::invalid_type("unhashable dataclass attr keys"))?;
                 let dc = Dataclass::new(name, type_id, field_names, dict, frozen);
-                Ok(Value::Ref(vm.heap.allocate(HeapData::Dataclass(dc))?))
+                Ok(Value::Ref(vm.heap.allocate(HeapData::Dataclass(Box::new(dc)))?))
             }
             Self::Path(s) => Ok(Value::Ref(vm.heap.allocate(HeapData::Path(Path::new(s)))?)),
             Self::Type(t) => Ok(Value::Builtin(Builtins::Type(t))),

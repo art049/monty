@@ -45,10 +45,18 @@ impl Str {
     ///
     /// - `str()` with no args returns an empty string
     /// - `str(x)` converts x to its string representation using `py_str`
+    ///
+    /// Includes a fast path for `str(int)` that uses `itoa` for direct conversion,
+    /// avoiding `py_repr`'s `AHashSet` cycle detection and `fmt::write` overhead.
     pub fn init(vm: &mut VM<'_, '_, impl ResourceTracker>, args: ArgValues) -> RunResult<Value> {
         let value = args.get_zero_one_arg("str", vm.heap)?;
         match value {
             None => Ok(Value::InternString(StaticStrings::EmptyString.into())),
+            Some(Value::Int(n)) => {
+                let mut buf = itoa::Buffer::new();
+                let s = buf.format(n);
+                allocate_str_ref(s, vm.heap)
+            }
             Some(v) => {
                 defer_drop!(v, vm);
                 let s = v.py_str(vm).into_owned();
@@ -109,6 +117,24 @@ pub fn allocate_string(s: String, heap: &mut Heap<impl ResourceTracker>) -> RunR
         }
         _ => {
             let heap_id = heap.allocate(HeapData::Str(Str::new(s)))?;
+            Ok(Value::Ref(heap_id))
+        }
+    }
+}
+
+/// Allocates a string from a `&str`, using interned versions when possible.
+///
+/// Like [`allocate_string`] but takes a `&str` to avoid an intermediate `String`
+/// allocation when the source is already a borrowed string (e.g., from `itoa::Buffer`).
+pub fn allocate_str_ref(s: &str, heap: &mut Heap<impl ResourceTracker>) -> RunResult<Value> {
+    match s.len() {
+        0 => Ok(Value::InternString(StaticStrings::EmptyString.into())),
+        1 => {
+            let byte = s.as_bytes()[0];
+            Ok(Value::InternString(StringId::from_ascii(byte)))
+        }
+        _ => {
+            let heap_id = heap.allocate(HeapData::Str(Str(s.into())))?;
             Ok(Value::Ref(heap_id))
         }
     }

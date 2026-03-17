@@ -517,6 +517,17 @@ impl Signature {
         Ok(())
     }
 
+    /// Returns `true` if this is a simple signature with no defaults, no *args/**kwargs,
+    /// and no keyword-only parameters.
+    ///
+    /// Simple signatures can bypass the full `bind()` algorithm entirely when there
+    /// are no keyword arguments at the call site, enabling the caller to push
+    /// positional args directly onto the VM stack.
+    #[inline]
+    pub fn is_simple(&self) -> bool {
+        self.bind_mode == BindMode::Simple
+    }
+
     /// Returns the total number of named parameters (excluding *args/**kwargs slots).
     ///
     /// This is `pos_args.len() + args.len() + kwargs.len()`.
@@ -609,7 +620,12 @@ impl Signature {
     /// # Arguments
     /// * `actual_count` - Number of arguments actually provided
     /// * `interns` - String storage for looking up interned names
-    fn wrong_arg_count_error<T>(&self, actual_count: usize, interns: &Interns, func_name: Identifier) -> RunResult<T> {
+    pub(crate) fn wrong_arg_count_error<T>(
+        &self,
+        actual_count: usize,
+        interns: &Interns,
+        func_name: Identifier,
+    ) -> RunResult<T> {
         let name_str = interns.get_str(func_name.name_id);
         let param_count = self.param_count();
         let msg = if let Some(missing_count) = param_count.checked_sub(actual_count) {
