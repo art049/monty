@@ -45,10 +45,18 @@ impl Str {
     ///
     /// - `str()` with no args returns an empty string
     /// - `str(x)` converts x to its string representation using `py_str`
+    ///
+    /// Includes a fast path for `str(int)` that uses `itoa` for direct conversion,
+    /// avoiding `py_repr`'s `AHashSet` cycle detection and `fmt::write` overhead.
     pub fn init(vm: &mut VM<'_, '_, impl ResourceTracker>, args: ArgValues) -> RunResult<Value> {
         let value = args.get_zero_one_arg("str", vm.heap)?;
         match value {
             None => Ok(Value::InternString(StaticStrings::EmptyString.into())),
+            Some(Value::Int(n)) => {
+                let mut buf = itoa::Buffer::new();
+                let s = buf.format(n);
+                allocate_string(s.to_owned(), vm.heap)
+            }
             Some(v) => {
                 defer_drop!(v, vm);
                 let s = v.py_str(vm).into_owned();
